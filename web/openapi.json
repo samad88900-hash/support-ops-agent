@@ -1,0 +1,161 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Support & Ops Agent API",
+    "version": "1.0.0",
+    "description": "Protected HTTP API for support and operations automation with RAG, tools, guardrails and traces."
+  },
+  "servers": [{ "url": "http://localhost:8787", "description": "Local" }],
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/v1/chat": {
+      "post": {
+        "summary": "Run the agent",
+        "operationId": "chat",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "Optional key; repeated requests within 10 minutes return the cached response.",
+            "schema": { "type": "string", "maxLength": 128 }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatRequest" },
+              "examples": {
+                "order": { "summary": "Order lookup", "value": { "message": "Where is order ORD-1042?" } },
+                "refund": { "summary": "Over-limit refund", "value": { "message": "Refund order ORD-0998 please" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Agent response",
+            "headers": {
+              "X-Request-ID": { "schema": { "type": "string" } },
+              "X-RateLimit-Remaining": { "schema": { "type": "integer" } },
+              "X-Idempotent-Replay": { "schema": { "type": "string" } }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChatResponse" } } }
+          },
+          "400": { "description": "Invalid request body" },
+          "401": { "description": "Missing or invalid bearer token" },
+          "413": { "description": "Request body too large" },
+          "429": { "description": "Rate limit exceeded" },
+          "503": { "description": "API_ACCESS_KEY not configured" }
+        }
+      }
+    },
+    "/v1/agent": {
+      "get": {
+        "summary": "Agent capabilities and limits",
+        "responses": {
+          "200": {
+            "description": "Agent metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "version": { "type": "string" },
+                    "tools": { "type": "array", "items": { "type": "string" } },
+                    "capabilities": { "type": "array", "items": { "type": "string" } },
+                    "refundApprovalLimit": { "type": "number" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/health": {
+      "get": { "summary": "Authenticated health check", "responses": { "200": { "description": "OK" } } }
+    },
+    "/healthz": {
+      "get": {
+        "summary": "Public readiness probe",
+        "security": [],
+        "responses": { "200": { "description": "Ready" }, "503": { "description": "Not ready" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "description": "API_ACCESS_KEY configured on the server" }
+    },
+    "schemas": {
+      "ChatMessage": {
+        "type": "object",
+        "required": ["role", "content"],
+        "properties": {
+          "role": { "type": "string", "enum": ["user", "assistant"] },
+          "content": { "type": "string", "maxLength": 4000 }
+        }
+      },
+      "ChatRequest": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": { "type": "string", "minLength": 1, "maxLength": 4000 },
+          "history": { "type": "array", "maxItems": 20, "items": { "$ref": "#/components/schemas/ChatMessage" } },
+          "sessionId": { "type": "string", "maxLength": 64 }
+        }
+      },
+      "Citation": {
+        "type": "object",
+        "properties": {
+          "docId": { "type": "string" },
+          "title": { "type": "string" },
+          "excerpt": { "type": "string" }
+        }
+      },
+      "ToolCall": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "enum": ["lookupOrder", "draftRefund", "createTicket", "escalateToHuman"] },
+          "args": { "type": "object" },
+          "result": {},
+          "ok": { "type": "boolean" }
+        }
+      },
+      "TraceStep": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "enum": ["guardrail", "retrieval", "decision", "tool", "answer", "error"] },
+          "label": { "type": "string" },
+          "detail": { "type": "string" },
+          "ms": { "type": "integer" }
+        }
+      },
+      "ChatResponse": {
+        "type": "object",
+        "properties": {
+          "answer": { "type": "string" },
+          "intent": { "type": "string" },
+          "citations": { "type": "array", "items": { "$ref": "#/components/schemas/Citation" } },
+          "tools": { "type": "array", "items": { "$ref": "#/components/schemas/ToolCall" } },
+          "trace": { "type": "array", "items": { "$ref": "#/components/schemas/TraceStep" } },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "mode": { "type": "string", "enum": ["mock", "live"] },
+              "latencyMs": { "type": "integer" },
+              "costUsd": { "type": "number" },
+              "guardrails": { "type": "array", "items": { "type": "string" } },
+              "sessionId": { "type": "string" },
+              "requestId": { "type": "string" },
+              "degraded": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
